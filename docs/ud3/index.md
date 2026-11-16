@@ -637,23 +637,21 @@ La UT3 se evalúa con un **examen tipo test**.
 
 > 20 preguntas. Mezclan teoría y lo que viste y probaste en el laboratorio. Una sola respuesta correcta.
 
-**1.** El `compose.yaml` del laboratorio define la API así:
+**1.** Tienes un servidor web interno corriendo en el puerto 8000. No está expuesto al exterior — solo los servicios de la misma red interna pueden alcanzarlo. Desde tu PC ejecutas:
 
-```yaml
-  api:
-    build: ./api
-    networks:
-      - interna
+```bash
+curl http://localhost:8000/salud
+# → Connection refused
 ```
 
-Ejecutaste `curl http://localhost:8000/salud` y obtuviste *Connection refused*. ¿Por qué?
+¿Por qué obtienes *Connection refused* si el servicio está en marcha?
 
-- A) La API tiene un error
-- B) La API no publica ningún puerto hacia el anfitrión; solo Nginx puede llegar a ella desde la red interna
-- C) Falta el certificado
-- D) El token es incorrecto
+- A) El servicio tiene un error interno
+- B) El puerto 8000 no está publicado hacia el exterior; solo los servicios de la red interna pueden llegar a él
+- C) Falta el certificado TLS
+- D) El token de autenticación es incorrecto
 
-<details class="sol"><summary>Ver respuesta</summary><b>Correcta: B.</b> La API no tiene <code>ports:</code> en el compose, así que no existe ningún puente entre la red Docker y tu máquina. Es el aislamiento funcionando correctamente.</details>
+<details class="sol"><summary>Ver respuesta</summary><b>Correcta: B.</b> Un servicio en una red privada no tiene por qué estar expuesto al exterior. Si nadie abre un punto de acceso hacia él, existe y funciona internamente pero es invisible desde fuera. Es el aislamiento funcionando correctamente.</details>
 
 **2.** En el Paso 5 ejecutaste esto y obtuviste 401:
 
@@ -744,46 +742,29 @@ More details here: https://curl.se/docs/sslcerts.html
 
 <details class="sol"><summary>Ver respuesta</summary><b>Correcta: B.</b> La diferencia es de confianza, no de cifrado. Una CA verifica la identidad del servidor antes de emitir el certificado; el autofirmado lo firma uno mismo.</details>
 
-**8.** El `compose.yaml` define las redes así:
+**8.** En el laboratorio, la red donde vive la API está configurada como red interna aislada: no tiene salida a internet y no es accesible desde fuera. La red DMZ, donde está Nginx, sí tiene conexión con el exterior.
 
-```yaml
-networks:
-  dmz:
-  interna:
-    internal: true
-```
+¿Qué ventaja de seguridad aporta que la API viva en una red aislada sin salida a internet?
 
-¿Qué implica `internal: true` para los contenedores que están solo en esa red (como la API)?
-
-- A) Que va más rápida
-- B) Que no tiene salida a internet; está aislada
-- C) Que solo acepta HTTPS
-- D) Que es visible desde fuera del contenedor
+- A) Que el tráfico va más rápido al no pasar por el router
+- B) Que aunque un atacante llegue a la DMZ, no puede llegar directamente a la API ni esta puede "llamar a casa"
+- C) Que la API solo acepta conexiones HTTPS
+- D) Que la API es visible desde cualquier equipo de la red
 
 <details class="sol"><summary>Ver respuesta</summary><b>Correcta: B.</b> <code>internal: true</code> crea una red sin enrutamiento hacia el exterior. La API vive ahí y no puede ni ser alcanzada ni llegar a internet por su cuenta.</details>
 
-**9.** En el `compose.yaml`:
+**9.** En el laboratorio, Nginx pertenece tanto a la red DMZ (expuesta) como a la red interna (aislada). La API solo pertenece a la red interna.
 
-```yaml
-  nginx:
-    networks:
-      - dmz
-      - interna
-  api:
-    networks:
-      - interna
-```
+¿Por qué Nginx necesita estar en las dos redes y la API solo en una?
 
-¿Por qué Nginx está en dos redes y la API solo en una?
-
-- A) Es un error de configuración
-- B) Nginx necesita estar en las dos para hacer de puente entre el exterior y la API
-- C) Para que la API vaya más rápida
-- D) Para ahorrar memoria
+- A) Es un error — todos los servicios deberían estar en la misma red
+- B) Nginx debe poder recibir tráfico exterior (DMZ) y a la vez alcanzar la API (interna); la API no necesita ver el exterior
+- C) Para que la API responda más rápido al no procesar tráfico exterior
+- D) Para reducir el consumo de memoria del servidor
 
 <details class="sol"><summary>Ver respuesta</summary><b>Correcta: B.</b> Nginx es la pasarela: recibe tráfico del exterior (red dmz) y lo reenvía a la API (red interna). La API no necesita estar en la dmz porque nadie debe llegar a ella directamente.</details>
 
-**10.** En el `nginx.conf` que configuraste en el Paso 4:
+**10.** La pasarela Nginx reenvía las peticiones a la API usando su nombre de host, no su IP:
 
 ```nginx
 location / {
@@ -791,14 +772,14 @@ location / {
 }
 ```
 
-¿Por qué funciona usar el nombre `api` en vez de una IP?
+¿Por qué funciona usar el nombre `api` en vez de una dirección IP?
 
-- A) `api` es una IP pública fija
-- B) Docker resuelve el nombre `api` dentro de la red interna como la dirección del contenedor
-- C) El puerto 8000 está publicado hacia el anfitrión
-- D) Nginx adivina la dirección del contenedor
+- A) `api` es un nombre público registrado en DNS
+- B) La red interna tiene su propio DNS que resuelve el nombre de cada servicio a su dirección; no hace falta saber la IP
+- C) El puerto 8000 está publicado hacia el exterior y cualquiera puede acceder
+- D) Nginx prueba todas las IPs posibles hasta encontrar la correcta
 
-<details class="sol"><summary>Ver respuesta</summary><b>Correcta: B.</b> En una red Docker, los contenedores se pueden localizar por su nombre de servicio. Nginx usa ese nombre internamente; desde fuera de Docker, ese nombre no existe.</details>
+<details class="sol"><summary>Ver respuesta</summary><b>Correcta: B.</b> Las redes privadas tienen su propio DNS interno que resuelve nombres de host a direcciones. Nginx usa ese DNS para localizar la API por nombre; desde fuera de esa red privada, el nombre no es resoluble.</details>
 
 **11.** ¿Qué es una **DMZ** en seguridad perimetral?
 
@@ -856,20 +837,14 @@ curl http://localhost:8000/salud              # Connection refused
 
 <details class="sol"><summary>Ver respuesta</summary><b>Correcta: B.</b> SSH permite administrar un servidor de forma remota y cifrada. Sustituyó a Telnet, que enviaba todo en claro incluyendo contraseñas.</details>
 
-**16.** En el lab, ejecutaste `curl http://localhost:8000/salud` y obtuviste *Connection refused*, porque la API no publica puertos. Solo Nginx llega a ella por la red `interna`:
+**16.** La API del laboratorio solo es accesible desde la red interna — desde fuera obtienes *Connection refused*. Un compañero de trabajo remoto necesita acceder a esa API sin exponer el servicio a internet.
 
-```yaml
-networks:
-  interna:
-    internal: true
-```
+¿Qué solución resuelve exactamente este problema?
 
-Si levantaras una **VPN** que te conectase a esa red `interna`, ¿qué cambiaría?
-
-- A) Nada, el laboratorio no la soporta
-- B) Entrar en la red interna como si estuvieras físicamente en ella, pudiendo llegar a la API directamente
-- C) Solo cifrar el tráfico web
-- D) Deshabilitar el certificado autofirmado
+- A) Publicar el puerto de la API directamente en el router
+- B) Una VPN: el compañero se conecta y pasa a formar parte de la red interna, pudiendo acceder a la API como si estuviera en la oficina
+- C) Usar HTTPS en la API hace que sea accesible desde fuera
+- D) Redirigir el tráfico a través del certificado autofirmado
 
 <details class="sol"><summary>Ver respuesta</summary><b>Correcta: B.</b> La VPN te convierte en un miembro más de la red interna. Desde ahí podrías llamar a <code>http://api:8000</code> directamente, igual que hace Nginx.</details>
 
@@ -882,23 +857,14 @@ Si levantaras una **VPN** que te conectase a esa red `interna`, ¿qué cambiarí
 
 <details class="sol"><summary>Ver respuesta</summary><b>Correcta: B.</b> RADIUS permite que todos los servicios pregunten a un único servidor de autenticación. Alta, baja o cambio de contraseña se hace en un solo sitio.</details>
 
-**18.** En el `compose.yaml` del Paso 1, solo Nginx tiene `ports:` publicados. La API no tiene ninguno:
+**18.** En el laboratorio, Nginx es el único servicio accesible desde el exterior. La API no tiene ningún puerto expuesto. Toda petición que llega desde fuera pasa primero por Nginx, que la reenvía a la API.
 
-```yaml
-nginx:
-  ports:
-    - "8443:443"
-  networks: [dmz, interna]
-api:
-  networks: [interna]   # sin ports
-```
+¿Cómo se llama este papel que juega Nginx y qué ventaja aporta?
 
-¿Qué significa que Nginx haga de **pasarela**?
-
-- A) Que guarda copias de seguridad
-- B) Que es el único punto de entrada: toda petición pasa por él antes de llegar a la API
-- C) Que cifra los datos almacenados
-- D) Que gestiona los usuarios
+- A) Balanceador de carga: reparte peticiones entre varios servidores
+- B) Pasarela o proxy inverso: centraliza el acceso, oculta la API al exterior y permite aplicar seguridad en un solo punto
+- C) Servidor de autenticación: gestiona las credenciales de los usuarios
+- D) Servidor de respaldo: guarda copias de la API por si falla
 
 <details class="sol"><summary>Ver respuesta</summary><b>Correcta: B.</b> La pasarela concentra el control: autenticación, cifrado TLS, registro de accesos. La API no sabe nada de todo eso; se lo delega a Nginx.</details>
 
@@ -945,11 +911,13 @@ curl -k https://localhost:8443/empleados   # → 401, sin token
 
 <details class="sol"><summary>Ver respuesta</summary><b>Correcta: B.</b> Un puerto <code>open</code> tiene un servicio activo (nginx en el 80). Un puerto <code>closed</code> el sistema operativo lo conoce pero no hay nadie detrás: si conectas, obtienes <i>Connection refused</i>. Un tercer estado, <code>filtered</code>, indica que un firewall descarta los paquetes sin responder.</details>
 
-**23.** ¿Por qué la API del laboratorio (que escucha en el puerto 8000) no es accesible desde tu PC aunque el contenedor esté en marcha?
+**23.** Un servidor escucha en el puerto 8000 dentro de una red privada. Desde tu PC lanzas `curl http://localhost:8000` y obtienes *Connection refused*, aunque el servidor está en marcha y sin errores.
 
-- A) Porque el puerto 8000 está reservado
-- B) Porque sin `ports:` en el compose, el puerto 8000 no está publicado hacia el anfitrión: solo existe dentro de la red Docker
-- C) Porque la API tiene un error de configuración
-- D) Porque el puerto 8000 requiere HTTPS
+¿Cuál es la explicación correcta?
 
-<details class="sol"><summary>Ver respuesta</summary><b>Correcta: B.</b> En Docker Compose, <code>ports:</code> es el puente entre el puerto del contenedor y tu máquina. Sin ese puente, el servicio escucha internamente pero es invisible desde fuera. Es la implementación práctica del aislamiento de redes: la API vive en la red <code>interna</code> y no tiene salida.</details>
+- A) El puerto 8000 está reservado por el sistema operativo y no puede usarse
+- B) El servidor está en una red aislada y su puerto no está mapeado al exterior; desde tu PC no hay ruta para llegar a él
+- C) El servidor tiene un fallo de configuración que impide responder
+- D) El puerto 8000 exige conexión HTTPS y estás usando HTTP
+
+<details class="sol"><summary>Ver respuesta</summary><b>Correcta: B.</b> Un servicio en una red privada aislada solo es alcanzable desde dentro de esa red. Para que sea accesible desde fuera hay que abrir explícitamente un punto de acceso (publicar el puerto). Sin eso el servicio escucha y funciona, pero desde el exterior no hay ruta para llegar a él — de ahí el <em>Connection refused</em>.</details>
